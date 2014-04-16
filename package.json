@@ -2,12 +2,12 @@
   "name": "node-api",
   "main": "server.js",
   "dependencies": {
-    "express": "~4.0.0",
-    "mongoose": "~3.6.13",
+    "bcryptjs": "^0.7.12",
     "body-parser": "~1.0.1",
-    "morgan": "*",
-    "shortid": "*",
+    "express": "~4.0.0",
     "moment": "^2.6.0",
-    "bcrypt": "^0.7.7"
+    "mongoose": "~3.6.13",
+    "morgan": "*",
+    "shortid": "*"
   }
 }

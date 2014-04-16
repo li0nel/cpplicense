@@ -118,7 +118,13 @@ router.route('/apps/:appid/licenses')
 		// need to create new user
 		// and new license
 		// need email, password + license constraints
-		if (typeof req.body.email !== 'undefined' && req.body.email !== null) {
+		if (typeof req.body.email !== 'undefined' && req.body.email !== null
+		&& typeof req.body.from !== 'undefined' && req.body.from !== null
+		&& typeof req.body.to !== 'undefined' && req.body.to !== null) {
+		
+			//todo : check valid email
+			//todo : check dates
+			
 			var user = new User(); 		// create a new instance of the User model
 			user.email = req.body.email;  // set the user email (comes from the request)
 			user.password = shortId.generate();
@@ -142,9 +148,47 @@ router.route('/apps/:appid/licenses')
 							else if (!user.length)
 								res.send(500);
 							else {
+								License.find({userid : user[0].id, appid : req.params.appid, active : true}, function(err, license) {
+									if (err)
+										res.send(500);
+										
+									if (license.length)
+										res.send(403, { error : 'user already have a license for this app'});
+									else {
+										var license = new License();
+										license.id = shortId.generate();
+										license.userid = user[0].id;
+										license.appid = req.params.appid;
+										license.from = moment(req.body.from);
+										license.to = moment(req.body.to);
+										license.maxofflinetime = req.body.maxofflinetime;
+										license.trial = req.body.trial;
+										license.datecreated = moment();
+										license.active = true;
+				
+										// save the app and check for errors
+										license.save(function(err) {
+											if (err)
+												res.send(err); // wrong cast
+											else
+												res.json({ message: 'License created, user invited' });
+										});	
+									}
+								});
+							}
+						});
+					}
+					else {
+						License.find({userid : user.id, appid : req.params.appid, active : true}, function(err, license) {
+							if (err)
+								res.send(500);
+								
+							if (license.length)
+								res.send(403, { error : 'user already have a license for this app'});
+							else {
 								var license = new License();
 								license.id = shortId.generate();
-								license.userid = user[0].id;
+								license.userid = user.id;
 								license.appid = req.params.appid;
 								license.from = moment(req.body.from);
 								license.to = moment(req.body.to);
@@ -152,39 +196,21 @@ router.route('/apps/:appid/licenses')
 								license.trial = req.body.trial;
 								license.datecreated = moment();
 								license.active = true;
-
+		
 								// save the app and check for errors
 								license.save(function(err) {
 									if (err)
 										res.send(err); // wrong cast
 									else
 										res.json({ message: 'License created, user invited' });
-								});
+								});	
 							}
-						});
-					}
-					else {
-						var license = new License();
-						license.id = shortId.generate();
-						license.userid = userid;
-						license.appid = req.params.appid;
-						license.from = moment(req.body.from);
-						license.to = moment(req.body.to);
-						license.maxofflinetime = req.body.maxofflinetime;
-						license.trial = req.body.trial;
-						license.datecreated = moment();
-						license.active = true;
-
-						// save the app and check for errors
-						license.save(function(err) {
-							if (err)
-								res.send(err); // wrong cast
-							else
-								res.json({ message: 'License created, user invited' });
 						});
 					}									
 				}
 			});
+		} else {
+			res.send(400);
 		}
 	});
 	
