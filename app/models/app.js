@@ -12,4 +12,10 @@ var AppSchema   = new Schema({
 	active: Boolean
 });
 
+AppSchema.methods.toJSON = function() {
+  var obj = this.toObject()
+  delete obj.client_secret;
+  return obj;
+}
+
 module.exports = mongoose.model('App', AppSchema);

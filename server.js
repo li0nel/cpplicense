@@ -103,7 +103,7 @@ router.route('/apps/:appid')
 		App.find({id : req.params.appid}, function(err, app) {
 			if (err)
 				res.send(err);
-				
+
 			if (!app.length)
 				res.send(404);
 			else
@@ -132,27 +132,57 @@ router.route('/apps/:appid/licenses')
 
 			// save the user and check for errors
 			user.save(function(err) {
-				if (err)
-					res.send(err);
-				else {
-					var license = new License();
-					license.id = shortId.generate();
-					license.userid = user.id;
-					license.appid = req.params.appid;
-					license.from = moment(req.body.from);
-					license.to = moment(req.body.to);
-					license.maxofflinetime = req.body.maxofflinetime;
-					license.trial = req.body.trial;
-					license.datecreated = moment();
-					license.active = true;
+				if (err && err.code !== 11000) {//Maybe user already exists, if so continue
+					res.send(err); 
+				} else {
+					if (err.code == 11000) {
+						User.find({email : req.body.email}, function(err, user) {
+							if (err)
+								res.send(err);
+							else if (!user.length)
+								res.send(500);
+							else {
+								var license = new License();
+								license.id = shortId.generate();
+								license.userid = user[0].id;
+								license.appid = req.params.appid;
+								license.from = moment(req.body.from);
+								license.to = moment(req.body.to);
+								license.maxofflinetime = req.body.maxofflinetime;
+								license.trial = req.body.trial;
+								license.datecreated = moment();
+								license.active = true;
 
-					// save the app and check for errors
-					license.save(function(err) {
-						if (err)
-							res.send(err);
-						else
-							res.json({ message: 'License created, user invited' });
-					});
+								// save the app and check for errors
+								license.save(function(err) {
+									if (err)
+										res.send(err); // wrong cast
+									else
+										res.json({ message: 'License created, user invited' });
+								});
+							}
+						});
+					}
+					else {
+						var license = new License();
+						license.id = shortId.generate();
+						license.userid = userid;
+						license.appid = req.params.appid;
+						license.from = moment(req.body.from);
+						license.to = moment(req.body.to);
+						license.maxofflinetime = req.body.maxofflinetime;
+						license.trial = req.body.trial;
+						license.datecreated = moment();
+						license.active = true;
+
+						// save the app and check for errors
+						license.save(function(err) {
+							if (err)
+								res.send(err); // wrong cast
+							else
+								res.json({ message: 'License created, user invited' });
+						});
+					}									
 				}
 			});
 		}
