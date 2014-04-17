@@ -14,6 +14,8 @@ var flash    = require('connect-flash');
 var session = require('express-session');
 var RedisStore = require('connect-redis')(session);
 var cookieParser = require('cookie-parser');
+var BasicStrategy = require('passport-http').BasicStrategy //for basic authentication
+var BearerStrategy = require('passport-http-bearer').Strategy; //for bearer token authentication (aka 2-legged OAuth2.0)
 
 app.use(logger());
 
@@ -166,6 +168,30 @@ function isLoggedIn(req, res, next) {
 		res.redirect('/login');
 }
 
+passport.use(new BasicStrategy(function (username, password, done) {
+    Customers.findOne({ email : username },function(err,user){
+        if(err) { return done(err); }
+        if(!user){
+            return done(null, false, { message: 'Incorrect username.' });
+        }
+        hash(password, user.salt, function (err, hash) {
+            if (err) { return done(err); }
+            if (hash == user.password) return done(null, user);
+            done(null, false, { message: 'Incorrect password.' });
+        });
+    });
+}));
+
+passport.use(new BearerStrategy(
+  function (token, done) {
+    Customers.findOne({ access_token: token }, function (err, user) {
+      if (err) { return done(err); }
+      if (!user) { return done(null, false); }
+      return done(null, user, { scope: 'all' });
+    });
+  }
+));
+
 // route for showing the profile page
 app.get('/profile', isLoggedIn, function(req, res) {
 	res.redirect('/apps/'+req.user.apps[0].id);
@@ -306,18 +332,33 @@ router.route('/apps/:appid/licenses')
 	});
 	
 router.route('/oauthtoken')
-	.post(function(req, res) {
-		//here create oauthtoken with basic auth
-	});
-			
-	
-router.route('/apps/:appid/licenses/:licenseid')
+	.post(passport.authenticate('basic', { session: false }), function (req, res) { //Issue token here
+		res.header('Content-Type','application/json;charset=UTF-8');
+		res.header('Cache-Control','no-store');
+		res.header('Pragma', 'no-cache');
 
-	// get a fresh license, for customers only, owner has no point using that service
-	.get(function(req, res) {
-		//Here check req.headers.X-Grow-License
+//		crypto.randomBytes(25, function(ex, buf) {
+//		var token = buf.toString('hex');
+			var token = shortId.generate()+shortId.generate();
+			Customer.update({email: req.user.email},{access_token:token}, function(err,affected, raw) {
+				console.log('%d new oauth token for user %s', affected, req.user.email);
+			});
+			var jsonData = {};
+			jsonData['access_token'] = token;
+			jsonData['token_type'] = 'access_token';
+			jsonData['expires_in'] = '3600'; //TODO
+			res.send(jsonData);
+//		});
+	});
 	
-		return License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
+router.route('/apps/:appid/license')
+
+	// get a fresh license, for customers only. 
+	// Owner has no point using that service
+	.get(passport.authenticate('bearer', { session: false }), function(req, res) {
+		//Here check req.headers.X-Grow-License
+		
+		return License.find({userid : req.user._id, appid : req.params.appid}, function(err, license) {
 			if (err)
 				res.send(err);
 			else if (!license.length)
