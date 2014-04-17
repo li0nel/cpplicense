@@ -29,6 +29,14 @@ var port = process.env.PORT || 8080; 		// set our port
 var mongoose   = require('mongoose');
 mongoose.connect('mongodb://localhost/swlicense'); // connect to our database
 
+//utils
+// ============================================================================
+function validateEmail(email) { 
+    var re = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+    return re.test(email);
+} 
+
+
 // ROUTES FOR OUR API
 // =============================================================================
 var router = express.Router(); 				// get an instance of the express Router
@@ -53,44 +61,47 @@ router.route('/apps')
 		&& typeof req.body.description !== 'undefined' && req.body.description !== null) {
 		
 			//check valid email
-			
-			//check valid password
-			
-		
-			var user = new User();
-			user.email = req.body.email;  // set the user email (comes from the request)
-			user.password = req.body.password;
-			user.id = shortId.generate();
-			user.oauthtoken = shortId.generate()+shortId.generate();
-			user.oauthtokenexpires = moment().add('days', 30);
-			user.forgottoken = shortId.generate()+shortId.generate();
-			user.forgottokenexpires = moment().add('days', 30);
-			user.datecreated = moment();
-			user.active = false; //need to activate email first
+			if (!validateEmail(req.body.email))
+				res.send(400,{ error : 'not valid email' });
+			else if (req.body.password.length < 6) {
+				//check valid password
+				res.send(400,{ error : 'password must be at leat 6 char long' });
+			} else {
+				var user = new User();
+				user.email = req.body.email;  // set the user email (comes from the request)
+				user.password = req.body.password;
+				user.id = shortId.generate();
+				user.oauthtoken = shortId.generate()+shortId.generate();
+				user.oauthtokenexpires = moment().add('days', 30);
+				user.forgottoken = shortId.generate()+shortId.generate();
+				user.forgottokenexpires = moment().add('days', 30);
+				user.datecreated = moment();
+				user.active = false; //need to activate email first
 
-			// save the user and check for errors
-			user.save(function(err) {
-				if (err)
-					res.send(err);
-				else {
-					var app = new App();
-					app.id = shortId.generate();
-					app.ownerid = user.id;
-					app.datecreated = moment();
-					app.description = req.body.description;
-					app.client_secret = shortId.generate()+shortId.generate();
-					app.active = true;
+				// save the user and check for errors
+				user.save(function(err) {
+					if (err)
+						res.send(err);
+					else {
+						var app = new App();
+						app.id = shortId.generate();
+						app.ownerid = user.id;
+						app.datecreated = moment();
+						app.description = req.body.description;
+						app.client_secret = shortId.generate()+shortId.generate();
+						app.active = true;
 
-					// save the app and check for errors
-					app.save(function(err) {
-						if (err)
-							res.send(err);
-						else {
-							res.json({ message: 'App created!' });
-						}
-					});
-				}
-			});
+						// save the app and check for errors
+						app.save(function(err) {
+							if (err)
+								res.send(err);
+							else {
+								res.json({ message: 'App created!' });
+							}
+						});
+					}
+				});
+			}
 		}
 		else
 			res.send(400);
@@ -122,96 +133,112 @@ router.route('/apps/:appid/licenses')
 		&& typeof req.body.from !== 'undefined' && req.body.from !== null
 		&& typeof req.body.to !== 'undefined' && req.body.to !== null) {
 		
-			//todo : check valid email
-			//todo : check dates
-			
-			var user = new User(); 		// create a new instance of the User model
-			user.email = req.body.email;  // set the user email (comes from the request)
-			user.password = shortId.generate();
-			user.id = shortId.generate();
-			user.oauthtoken = shortId.generate()+shortId.generate();
-			user.oauthtokenexpires = moment().add('days', 30);
-			user.forgottoken = shortId.generate()+shortId.generate();
-			user.forgottokenexpires = moment().add('days', 30);
-			user.datecreated = moment();
-			user.active = false; //need user to accept invitation
-
-			// save the user and check for errors
-			user.save(function(err) {
-				if (err && err.code !== 11000) {//Maybe user already exists, if so continue
-					res.send(err); 
-				} else {
-					if (err.code == 11000) {
-						User.find({email : req.body.email}, function(err, user) {
-							if (err)
-								res.send(err);
-							else if (!user.length)
-								res.send(500);
-							else {
-								License.find({userid : user[0].id, appid : req.params.appid, active : true}, function(err, license) {
-									if (err)
-										res.send(500);
-										
-									if (license.length)
-										res.send(403, { error : 'user already have a license for this app'});
-									else {
-										var license = new License();
-										license.id = shortId.generate();
-										license.userid = user[0].id;
-										license.appid = req.params.appid;
-										license.from = moment(req.body.from);
-										license.to = moment(req.body.to);
-										license.maxofflinetime = req.body.maxofflinetime;
-										license.trial = req.body.trial;
-										license.datecreated = moment();
-										license.active = true;
+			if (!validateEmail(req.body.email))
+				res.send(400,{ error : 'not valid email' });
+			else {
+				//todo : check dates
 				
-										// save the app and check for errors
-										license.save(function(err) {
-											if (err)
-												res.send(err); // wrong cast
-											else
-												res.json({ message: 'License created, user invited' });
-										});	
-									}
-								});
-							}
-						});
+				var user = new User(); 		// create a new instance of the User model
+				user.email = req.body.email;  // set the user email (comes from the request)
+				user.password = shortId.generate();
+				user.id = shortId.generate();
+				user.oauthtoken = shortId.generate()+shortId.generate();
+				user.oauthtokenexpires = moment().add('days', 30);
+				user.forgottoken = shortId.generate()+shortId.generate();
+				user.forgottokenexpires = moment().add('days', 30);
+				user.datecreated = moment();
+				user.active = false; //need user to accept invitation
+
+				// save the user and check for errors
+				user.save(function(err) {
+					if (err && err.code !== 11000) {//Maybe user already exists, if so continue
+						res.send(err); 
+					} else {
+						if (err && err.code == 11000) {
+							User.find({email : req.body.email}, function(err, user) {
+								if (err)
+									res.send(err);
+								else if (!user.length)
+									res.send(500);
+								else {
+									License.find({userid : user[0].id, appid : req.params.appid, active : true}, function(err, license) {
+										if (err)
+											res.send(500);
+											
+										if (license.length)
+											res.send(403, { error : 'user already have a license for this app'});
+										else {
+											var license = new License();
+											license.id = shortId.generate();
+											license.userid = user[0].id;
+											license.appid = req.params.appid;
+											license.from = moment(req.body.from);
+											license.to = moment(req.body.to);
+											license.maxofflinetime = req.body.maxofflinetime;
+											license.trial = req.body.trial;
+											license.datecreated = moment();
+											license.active = true;
+					
+											// save the app and check for errors
+											license.save(function(err) {
+												if (err)
+													res.send(err); // wrong cast
+												else
+													res.json({ message: 'License created, user invited' });
+											});	
+										}
+									});
+								}
+							});
+						}
+						else {
+							License.find({userid : user.id, appid : req.params.appid, active : true}, function(err, license) {
+								if (err)
+									res.send(500);
+									
+								if (license.length)
+									res.send(403, { error : 'user already have a license for this app'});
+								else {
+									var license = new License();
+									license.id = shortId.generate();
+									license.userid = user.id;
+									license.appid = req.params.appid;
+									license.from = moment(req.body.from);
+									license.to = moment(req.body.to);
+									license.maxofflinetime = req.body.maxofflinetime;
+									license.trial = req.body.trial;
+									license.datecreated = moment();
+									license.active = true;
+			
+									// save the app and check for errors
+									license.save(function(err) {
+										if (err)
+											res.send(err); // wrong cast
+										else
+											res.json({ message: 'License created, user invited' });
+									});	
+								}
+							});
+						}									
 					}
-					else {
-						License.find({userid : user.id, appid : req.params.appid, active : true}, function(err, license) {
-							if (err)
-								res.send(500);
-								
-							if (license.length)
-								res.send(403, { error : 'user already have a license for this app'});
-							else {
-								var license = new License();
-								license.id = shortId.generate();
-								license.userid = user.id;
-								license.appid = req.params.appid;
-								license.from = moment(req.body.from);
-								license.to = moment(req.body.to);
-								license.maxofflinetime = req.body.maxofflinetime;
-								license.trial = req.body.trial;
-								license.datecreated = moment();
-								license.active = true;
-		
-								// save the app and check for errors
-								license.save(function(err) {
-									if (err)
-										res.send(err); // wrong cast
-									else
-										res.json({ message: 'License created, user invited' });
-								});	
-							}
-						});
-					}									
-				}
-			});
+				});
+			}
 		} else {
 			res.send(400);
 		}
+	})
+	
+	// get all the licenses (accessed at GET http://localhost:8080/api/users)
+	.get(function(req, res) {
+		License.find({appid : req.params.appid, active : true}, function(err, license) {
+			if (err)
+				res.send(err);
+				
+			if (!license.length)
+				res.send(404);
+			else
+				res.json(license);
+		});
 	});
 	
 router.route('/apps/:appid/licenses/:licenseid')
@@ -229,22 +256,26 @@ router.route('/apps/:appid/licenses/:licenseid')
 		});
 	})
 	
-	// update the license with this id (accessed at PUT http://localhost:8080/api/bears/:bear_id)
+	// update the license with this id (accessed at PUT http://localhost:8080/api/xxxs/:xxx_id)
 	.put(function(req, res) {
-
-		// use our bear model to find the bear we want
-		License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
+		// use our xxx model to find the xxx we want
+		License.findOne({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 
 			if (err)
 				res.send(err);
+			
+			if (typeof req.body.from !== 'undefined' && req.body.from !== null)
+				license.from = moment(req.body.from);
+			if (typeof req.body.to !== 'undefined' && req.body.to !== null)
+				license.to = moment(req.body.to);
+			if (typeof req.body.maxofflinetime !== 'undefined' && req.body.maxofflinetime !== null)
+				license.maxofflinetime = req.body.maxofflinetime;
+			if (typeof req.body.trial !== 'undefined' && req.body.trial !== null)
+				license.trial = req.body.trial;
+			if (typeof req.body.active !== 'undefined' && req.body.active !== null)
+				license.active = req.body.active;
 
-			license.from = moment(req.body.from);
-			license.to = moment(req.body.to);
-			license.maxofflinetime = req.body.maxofflinetime;
-			license.trial = req.body.trial;
-			license.active = req.body.active;
-
-			// save the bear
+			// save the license
 			license.save(function(err) {
 				if (err)
 					res.send(err);
@@ -255,9 +286,9 @@ router.route('/apps/:appid/licenses/:licenseid')
 		});
 	})
 	
-	// delete the license with this id (accessed at DELETE http://localhost:8080/api/bears/:bear_id)
+	// delete the license with this id (accessed at DELETE http://localhost:8080/api/xxxs/:xxx_id)
 	.delete(function(req, res) {
-		// use our bear model to find the bear we want
+		// use our xxx model to find the xxx we want
 		License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 
 			if (err)
