@@ -9,6 +9,11 @@ var app        = express(); 				// define our app using express
 var bodyParser = require('body-parser');
 var logger = require('morgan');
 var moment = require('moment');
+var passport = require('passport');
+var flash    = require('connect-flash');
+var session = require('express-session');
+var RedisStore = require('connect-redis')(session);
+var cookieParser = require('cookie-parser');
 
 app.use(logger());
 
@@ -22,12 +27,23 @@ var Activity = require('./app/models/activity');
 
 // configure app to use bodyParser()
 // this will let us get the data from a POST
+app.use(cookieParser());
 app.use(bodyParser());
+// required for passport
+app.use(session({ secret: 'ilovescotchscotchyscotchscotchrr' })); // session secret
+app.use(passport.initialize());
+app.use(passport.session()); // persistent login sessions
+app.use(flash()); // use connect-flash for flash messages stored in session
+
+
 
 var port = process.env.PORT || 8080; 		// set our port
 
 var mongoose   = require('mongoose');
 mongoose.connect('mongodb://localhost/swlicense'); // connect to our database
+
+require('./config/passport')(passport); // pass passport for configuration
+require('./app/login_routes.js')(app, passport); // load our routes and pass in our app and fully configured passport
 
 //utils
 // ============================================================================
@@ -46,12 +62,38 @@ router.use(function(req, res, next) {
 	next(); // make sure we go to the next routes and don't stop here
 });
 
-// test route to make sure everything is working (accessed at GET http://localhost:8080/api)
-router.get('/', function(req, res) {
-	res.send(404);
-});
+		// fetch user and test password verification
+		/*if (typeof req.body.email == 'undefined' || req.body.email == null)
+			res.send(400, { error : 'wrong email'});
+		else {
+			User.findOne({ email: req.body.email }, function(err, user) {
+				if (err) res.send(err);
+				else if (typeof user == 'undefined' || user == null)
+					res.send(400, { error : 'wrong email'});
+				else if (!user.active) {
+					res.send(403, {error:'Account not activated'});
+				} else {
+					// test for a matching password
+					user.comparePassword(req.body.password, function(err, isMatch) {
+						if (err) res.send(500, err);
+
+						// check if the password was a match
+						if (isMatch) {
+							// if there's no lock or failed attempts, just return the user
+							//if (!user.loginAttempts && !user.lockUntil) 
+							req.session.user = user;
+							res.send(user); //todo sanitize output
+							// reset attempts and lock info
+						} else {
+							res.send(400, { error : 'wrong password'});
+						}
+					});
+				}
+			});
+		}*/
+	//});
 	
-router.route('/apps')
+/*router.route('/apps')
 
 	// create an app and an admin (accessed at POST http://localhost:8080/api/apps)
 	.post(function(req, res) {
@@ -69,7 +111,7 @@ router.route('/apps')
 			} else {
 				var user = new User();
 				user.email = req.body.email;  // set the user email (comes from the request)
-				user.password = req.body.password;
+				//user.password = req.body.password;
 				user.id = shortId.generate();
 				user.oauthtoken = shortId.generate()+shortId.generate();
 				user.oauthtokenexpires = moment().add('days', 30);
@@ -96,7 +138,7 @@ router.route('/apps')
 							if (err)
 								res.send(err);
 							else {
-								res.json({ message: 'App created!' });
+								res.json(app);
 							}
 						});
 					}
@@ -106,11 +148,33 @@ router.route('/apps')
 		else
 			res.send(400);
 	});
+*/
+
+// route middleware to make sure a user is logged in
+function isOwner(req, res, next) {
+	if (req.isAuthenticated() && req.user.apps[0].id == req.params.appid )
+		return next();
+	else
+		res.redirect('/login');
+}
+
+// route middleware to make sure a user is logged in
+function isLoggedIn(req, res, next) {
+	if (req.isAuthenticated())
+		return next();
+	else
+		res.redirect('/login');
+}
+
+// route for showing the profile page
+app.get('/profile', isLoggedIn, function(req, res) {
+	res.redirect('/apps/'+req.user.apps[0].id);
+});
 	
 router.route('/apps/:appid')
 
 	// get all the licenses (accessed at GET http://localhost:8080/api/users)
-	.get(function(req, res) {
+	.get(isOwner, function(req, res) {
 		App.find({id : req.params.appid}, function(err, app) {
 			if (err)
 				res.send(err);
@@ -125,7 +189,7 @@ router.route('/apps/:appid')
 router.route('/apps/:appid/licenses')
 
 	// get all the licenses (accessed at GET http://localhost:8080/api/users)
-	.post(function(req, res) {
+	.post(isOwner, function(req, res) {
 		// need to create new user
 		// and new license
 		// need email, password + license constraints
@@ -241,23 +305,32 @@ router.route('/apps/:appid/licenses')
 		});
 	});
 	
+router.route('/oauthtoken')
+	.post(function(req, res) {
+		//here create oauthtoken with basic auth
+	});
+			
+	
 router.route('/apps/:appid/licenses/:licenseid')
 
-	// get all the licenses (accessed at GET http://localhost:8080/api/users)
+	// get a fresh license, for customers only, owner has no point using that service
 	.get(function(req, res) {
-		License.find({id : req.params.licenseid, appid : req.params.appid, active : true}, function(err, license) {
+		//Here check req.headers.X-Grow-License
+	
+		return License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 			if (err)
 				res.send(err);
-				
-			if (!license.length)
+			else if (!license.length)
 				res.send(404);
+			else if (!license.active) 
+				res.send(403, 'License has been deactivated');
 			else
 				res.json(license);
 		});
 	})
 	
 	// update the license with this id (accessed at PUT http://localhost:8080/api/xxxs/:xxx_id)
-	.put(function(req, res) {
+	.put(isOwner, function(req, res) {
 		// use our xxx model to find the xxx we want
 		License.findOne({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 
@@ -287,7 +360,7 @@ router.route('/apps/:appid/licenses/:licenseid')
 	})
 	
 	// delete the license with this id (accessed at DELETE http://localhost:8080/api/xxxs/:xxx_id)
-	.delete(function(req, res) {
+	.delete(isOwner, function(req, res) {
 		// use our xxx model to find the xxx we want
 		License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 
