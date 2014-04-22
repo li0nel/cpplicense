@@ -43,7 +43,7 @@ app.use(flash()); // use connect-flash for flash messages stored in session
 var port = process.env.PORT || 8080; 		// set our port
 
 var mongoose   = require('mongoose');
-mongoose.connect('mongodb://localhost/swlicense'); // connect to our database
+mongoose.connect('mongodb://heroku_app24418418:746hrmg64nupgnc26m73idg7bb@ds035368.mongolab.com:35368/heroku_app24418418'); // connect to our database
 
 require('./config/passport')(passport); // pass passport for configuration
 require('./app/login_routes.js')(app, passport); // load our routes and pass in our app and fully configured passport
@@ -132,69 +132,16 @@ router.use(function(req, res, next) {
 		}*/
 	//});
 	
-/*router.route('/apps')
-
-	// create an app and an admin (accessed at POST http://localhost:8080/api/apps)
-	.post(function(req, res) {
-		// need email, password, app description, 
-		if (typeof req.body.email !== 'undefined' && req.body.email !== null
-		&& typeof req.body.password !== 'undefined' && req.body.password !== null
-		&& typeof req.body.description !== 'undefined' && req.body.description !== null) {
-		
-			//check valid email
-			if (!validateEmail(req.body.email))
-				res.send(400,{ error : 'not valid email' });
-			else if (req.body.password.length < 6) {
-				//check valid password
-				res.send(400,{ error : 'password must be at leat 6 char long' });
-			} else {
-				var user = new User();
-				user.email = req.body.email;  // set the user email (comes from the request)
-				//user.password = req.body.password;
-				user.id = shortId.generate();
-				user.oauthtoken = shortId.generate()+shortId.generate();
-				user.oauthtokenexpires = moment().add('days', 30);
-				user.forgottoken = shortId.generate()+shortId.generate();
-				user.forgottokenexpires = moment().add('days', 30);
-				user.datecreated = moment();
-				user.active = false; //need to activate email first
-
-				// save the user and check for errors
-				user.save(function(err) {
-					if (err)
-						res.send(err);
-					else {
-						var app = new App();
-						app.id = shortId.generate();
-						app.ownerid = user.id;
-						app.datecreated = moment();
-						app.description = req.body.description;
-						app.client_secret = shortId.generate()+shortId.generate();
-						app.active = true;
-
-						// save the app and check for errors
-						app.save(function(err) {
-							if (err)
-								res.send(err);
-							else {
-								res.json(app);
-							}
-						});
-					}
-				});
-			}
-		}
-		else
-			res.send(400);
-	});
-*/
 
 // route middleware to make sure a user is logged in
 function isOwner(req, res, next) {
-	if (req.isAuthenticated() && req.user.apps[0].id == req.params.appid )
-		return next();
-	else
-		res.redirect('/glogin');
+	if (req.isAuthenticated())
+		for (var rep = 0; rep < req.user.apps.length; rep++) {
+			if (req.user.apps[rep].id == req.params.appid )
+				return next();
+		}
+
+	res.redirect('/glogin');
 }
 
 // route middleware to make sure a user is logged in
@@ -232,19 +179,80 @@ passport.use(new BearerStrategy(
 app.get('/profile', isLoggedIn, function(req, res) {
 	res.redirect('/apps/'+req.user.apps[0].id);
 });
-	
+
+app.use("/styles", express.static(__dirname + '/styles'));
+
+app.get('/', function(req, res) {
+	res.render('index.ejs');
+});
+
+router.route('/apps')
+
+	// create an app and an admin (accessed at POST http://localhost:8080/api/apps)
+	.post(isLoggedIn, function(req, res) {
+		// need email, password, app description, 
+		//check valid email
+		if (typeof req.body.description !== 'undefined' && req.body.description !== null) {
+			var app = new App();
+			app.id = shortId.generate();
+			app.ownerid = req.user.userinfo.id;
+			app.datecreated = moment();
+			app.description = req.body.description;
+			app.client_secret = shortId.generate()+shortId.generate();
+			app.active = true;
+
+			// save the app and check for errors
+			app.save(function(err) {
+				if (err)
+					res.send(err);
+				else {
+					res.json(app);
+				}
+			});
+		}
+		else
+			res.send(400);
+	});
+
+
 router.route('/apps/:appid')
 
 	// get all the licenses (accessed at GET http://localhost:8080/api/users)
 	.get(isOwner, function(req, res) {
-		App.find({id : req.params.appid}, function(err, app) {
+		App.findOne({id : req.params.appid}, function(err, app) {
 			if (err)
 				res.send(err);
 
-			if (!app.length)
+			if (app.length == 0)
 				res.send(404);
-			else
-				res.json(app);
+			else {
+				License.find({appid : app.id, active : true}).sort('-datecreated').exec(function(err, license) {
+					if (err)
+						res.send(500);
+					
+					var data = {};
+					app = app.toObject();
+					app.datecreated = moment(app.datecreated).format("YYYY, MMMM Do");
+					data.appinfo = app;
+
+					
+					App.find({ownerid : req.user.userinfo.id}, function(err, apps) {
+						data.apps = apps;
+						data.licenses = [];
+						
+						for (var rep = 0; rep < license.length; rep++) {
+							var doc = license[rep].toObject();
+							doc.from = moment(doc.from).format("YYYY-MMM-DD");
+							doc.to = moment(doc.to).format("YYYY-MMM-DD");
+							doc.datecreated = moment(doc.datecreated).format("YYYY, MMMM Do");
+							
+							data.licenses.push(doc);
+						}
+
+						res.render('dashboard.ejs',data);
+					});
+				});
+			}
 		});
 	});
 
@@ -257,97 +265,107 @@ router.route('/apps/:appid/licenses')
 		// need email, password + license constraints
 		if (typeof req.body.email !== 'undefined' && req.body.email !== null
 		&& typeof req.body.from !== 'undefined' && req.body.from !== null
-		&& typeof req.body.to !== 'undefined' && req.body.to !== null) {
+		&& typeof req.body.to !== 'undefined' && req.body.to !== null
+		&& typeof req.body.maxofflinetime !== 'undefined' && req.body.maxofflinetime !== null) {
 		
 			if (!validateEmail(req.body.email))
 				res.send(400,{ error : 'not valid email' });
 			else {
 				//todo : check dates
-				
-				var customer = new Customer(); 		// create a new instance of the User model
-				customer.email = req.body.email;  // set the user email (comes from the request)
-				customer.password = shortId.generate();
-				customer.id = shortId.generate();
-				customer.oauthtoken = shortId.generate()+shortId.generate();
-				customer.oauthtokenexpires = moment().add('days', 30);
-				customer.forgottoken = shortId.generate()+shortId.generate();
-				customer.forgottokenexpires = moment().add('days', 30);
-				customer.datecreated = moment();
-				customer.active = true; //false; need user to accept invitation
-
-				// save the user and check for errors
-				customer.save(function(err) {
-					if (err && err.code !== 11000) {//Maybe customer already exists, if so continue
-						res.send(err); 
-					} else {
-						if (err && err.code == 11000) {
-							Customer.find({email : req.body.email}, function(err, user) {
-								if (err)
-									res.send(err);
-								else if (!user.length)
-									res.send(500);
-								else {
-									License.find({userid : customer[0].id, appid : req.params.appid, active : true}, function(err, license) {
+				(function(email) {
+					var customer = new Customer(); 		// create a new instance of the User model
+					customer.email = email;  // set the user email (comes from the request)
+					customer.password = shortId.generate();
+					customer.id = shortId.generate();
+					customer.oauthtoken = shortId.generate()+shortId.generate();
+					customer.oauthtokenexpires = moment().add('days', 30);
+					customer.forgottoken = shortId.generate()+shortId.generate();
+					customer.forgottokenexpires = moment().add('days', 30);
+					customer.datecreated = moment();
+					customer.active = true; //false; need user to accept invitation
+	
+					// save the user and check for errors
+					customer.save(function(err) {
+						if (err && err.code !== 11000) {//Maybe customer already exists, if so continue
+							res.send(err); 
+						} else {
+							if (err && err.code == 11000) {
+									Customer.findOne({email : email}, function(err, customer) {
 										if (err)
+											res.send(err);
+										else if (customer.length == 0)
 											res.send(500);
-											
-										if (license.length)
-											res.send(403, { error : 'user already have a license for this app'});
 										else {
-											var license = new License();
-											license.id = shortId.generate();
-											license.userid = customer[0].id;
-											license.appid = req.params.appid;
-											license.from = moment(req.body.from);
-											license.to = moment(req.body.to);
-											license.maxofflinetime = req.body.maxofflinetime;
-											license.trial = req.body.trial;
-											license.datecreated = moment();
-											license.active = true;
-					
-											// save the app and check for errors
-											license.save(function(err) {
+											console.log(customer);
+
+											License.find({email : email, appid : req.params.appid, active : true}, function(err, license) {
 												if (err)
-													res.send(err); // wrong cast
-												else
-													res.json({ message: 'License created, customer invited' });
-											});	
+													res.send(500);
+													
+												console.log(license);
+													
+												if (license.length)
+													res.send(403, { error : 'user already have a license for this app'});
+												else {
+													console.log('email = '+email);
+
+													var newlicense = new License();
+													newlicense.email = email;
+													newlicense.id = shortId.generate();
+													newlicense.userid = customer.id;
+													newlicense.appid = req.params.appid;
+													newlicense.from = moment(req.body.from);
+													newlicense.to = moment(req.body.to);
+													newlicense.maxofflinetime = req.body.maxofflinetime;
+													newlicense.trial = req.body.trial;
+													newlicense.datecreated = moment();
+													newlicense.active = true;
+							
+													// save the app and check for errors
+													newlicense.save(function(err) {
+														if (err)
+															res.send(err); // wrong cast
+														else
+															res.redirect('/apps/'+req.params.appid);//res.json({ message: 'License created, customer invited' });
+													});	
+												}
+											});
 										}
 									});
-								}
-							});
+							}
+							else {
+								License.find({userid : customer.id, appid : req.params.appid, active : true}, function(err, license) {
+									if (err)
+										res.send(500);
+										
+									if (license.length)
+										res.send(403, { error : 'customer already have a license for this app'});
+									else {
+										var license = new License();
+										license.email = email;
+										license.id = shortId.generate();
+										license.userid = customer.id;
+										license.appid = req.params.appid;
+										license.from = moment(req.body.from);
+										license.to = moment(req.body.to);
+										license.maxofflinetime = req.body.maxofflinetime;
+										license.trial = req.body.trial;
+										license.datecreated = moment();
+										license.active = true;
+				
+										// save the app and check for errors
+										license.save(function(err) {
+											if (err)
+												res.send(err); // wrong cast
+											else
+												res.redirect('/apps/'+req.params.appid);//res.json({ message: 'License created, customer invited' });
+										});	
+									}
+								});
+							}									
 						}
-						else {
-							License.find({userid : customer.id, appid : req.params.appid, active : true}, function(err, license) {
-								if (err)
-									res.send(500);
-									
-								if (license.length)
-									res.send(403, { error : 'customer already have a license for this app'});
-								else {
-									var license = new License();
-									license.id = shortId.generate();
-									license.userid = customer.id;
-									license.appid = req.params.appid;
-									license.from = moment(req.body.from);
-									license.to = moment(req.body.to);
-									license.maxofflinetime = req.body.maxofflinetime;
-									license.trial = req.body.trial;
-									license.datecreated = moment();
-									license.active = true;
-			
-									// save the app and check for errors
-									license.save(function(err) {
-										if (err)
-											res.send(err); // wrong cast
-										else
-											res.json({ message: 'License created, customer invited' });
-									});	
-								}
-							});
-						}									
-					}
-				});
+					});
+				})(req.body.email)
 			}
 		} else {
 			res.send(400);
@@ -474,27 +492,20 @@ router.route('/apps/:appid/license')
 			});
 
 		});
-	})
+	});
 	
+router.route('/apps/:appid/licenses/:licenseid/delete')
 	// delete the license with this id (accessed at DELETE http://localhost:8080/api/xxxs/:xxx_id)
-	.delete(isOwner, function(req, res) {
+	.get(isOwner, function(req, res) {
 		// use our xxx model to find the xxx we want
-		License.find({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
+//		License.findOne({id : req.params.licenseid, appid : req.params.appid}, function(err, license) {
 
-			if (err)
-				res.send(err);
-
-			license.active = false;
-
-			// save the license
-			license.save(function(err) {
-				if (err)
-					res.send(err);
-
-				res.json({ message: 'License deleted!' });
-			});
-
+		License.update({id : req.params.licenseid, appid : req.params.appid}, {active:false}, function(err, numberAffected, rawResponse) {
+			//res.send({ rawResponse : rawResponse});
+			res.redirect('/apps/'+req.params.appid);//res.json({ message: 'License deleted!' });
 		});
+
+//		});
 	});
 	
 	

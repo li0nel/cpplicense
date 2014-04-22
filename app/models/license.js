@@ -2,8 +2,10 @@
 
 var mongoose     = require('mongoose');
 var Schema       = mongoose.Schema;
+var moment = require('moment');
 
 var LicenseSchema   = new Schema({
+	email: {type:String, required:true},
 	id: String,
 	userid: String,
 	appid: String,

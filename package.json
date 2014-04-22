@@ -17,6 +17,7 @@
     "connect-redis": "^2.0.0",
     "cookie-parser": "^1.0.1",
     "passport-http": "^0.2.2",
-    "passport-http-bearer": "^1.0.1"
+    "passport-http-bearer": "^1.0.1",
+    "ejs": "^1.0.0"
   }
 }
