@@ -74,6 +74,24 @@ AESCrypt.encrypt = function (cryptkey, iv, cleardata) {
 }
 
 
+//Logging function
+var log = function (ip, machineid, operation, userid, appid, licenseid)
+{
+	var activity = new Activity();
+	activity.date = moment();
+	activity.ip = ip;
+	//activity.geoloc = TODO;
+	activity.machineid = machineid;
+	activity.operation = operation;
+	activity.userid = userid;
+	activity.appid = appid;
+	activity.licenseid = licenseid;
+	
+	activity.save(function(err) {
+		if (err) console.log(err); 
+	});
+};
+
 // ROUTES FOR OUR API
 // =============================================================================
 var router = express.Router(); 				// get an instance of the express Router
@@ -382,8 +400,10 @@ router.route('/apps/:appid/license')
 				License.findOne({userid : req.user.id, appid : req.params.appid}, function(err, license) {
 					if (err)
 						res.send(err);
-					else if (license == null)
+					else if (license == null) {
 						res.send(404);
+						return log(request.connection.remoteAddress, '', 'License renewal failed', req.user.email, license.appid, '');
+					}
 					else if (license.active===false) 
 						res.send(403, 'License is deactivated');
 					else {
@@ -407,8 +427,6 @@ router.route('/apps/:appid/license')
 							json.EndDate = moment(license.to).format("YYYY-MMM-DD HH:mm:ss");
 						else
 							json.EndDate = moment().add('hours', license.maxofflinetime).format("YYYY-MMM-DD HH:mm:ss");
-							
-						console.log(json);
 
 						var data2 = new Buffer(JSON.stringify(json), 'utf8');
 						var enc = AESCrypt.encrypt(cryptkey, iv, data2);
@@ -418,6 +436,8 @@ router.route('/apps/:appid/license')
 						var jsonData = {};
 						jsonData['License'] = enc.toString('base64');
 						res.send(jsonData);
+						
+						return log(req.connection.remoteAddress, json.VolumeInfo, 'License renewal', req.user.email, license.appid, license.id);
 					}
 				});
 			});
