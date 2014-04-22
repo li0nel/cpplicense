@@ -1,22 +1,27 @@
 // app/models/user.js
 
 var mongoose = require('mongoose'),
-    Schema = mongoose.Schema,
-    bcrypt = require('bcryptjs'),
-    SALT_WORK_FACTOR = 10;
+    Schema = mongoose.Schema;
+	//,
+    //bcrypt = require('bcryptjs'),
+    //SALT_WORK_FACTOR = 10;
 
 var UserSchema   = new Schema({
-	email: { type: String, required: true, index: { unique: true } },
-	password: { type: String, required: true },
-	id: { type: String, required: true, index: { unique: true } },
-	oauthtoken: String,
-	oauthtokenexpires: Date,
-	forgottoken: String,
-	forgottokenexpires: Date,
+	google_id    : Number,
+	google_token : String,
+	name  : String,
+	email : String,
+	picture : String,
+	//email: { type: String, required: true, index: { unique: true } },
+	//password: { type: String, required: true },
+	//id: { type: String, required: true, index: { unique: true } },
+	//oauthtoken: String,
+	//oauthtokenexpires: Date,
 	datecreated: Date,
 	active: Boolean
 });
 
+/*
 UserSchema.pre('save', function(next) {
     var user = this;
 	 
@@ -43,11 +48,11 @@ UserSchema.methods.comparePassword = function(candidatePassword, cb) {
         if (err) return cb(err);
         cb(null, isMatch);
     });
-};
+};*/
 
 UserSchema.methods.toJSON = function() {
   var obj = this.toObject()
-  delete obj.password;
+  delete obj.google_token;
   return obj;
 }
 
