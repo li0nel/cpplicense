@@ -74,7 +74,6 @@ AESCrypt.encrypt = function (cryptkey, iv, cleardata) {
 }
 
 
-
 // ROUTES FOR OUR API
 // =============================================================================
 var router = express.Router(); 				// get an instance of the express Router
