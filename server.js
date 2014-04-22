@@ -17,6 +17,7 @@ var cookieParser = require('cookie-parser');
 var BasicStrategy = require('passport-http').BasicStrategy //for basic authentication
 var BearerStrategy = require('passport-http-bearer').Strategy; //for bearer token authentication (aka 2-legged OAuth2.0)
 
+var bcrypt = require('bcryptjs'), SALT_WORK_FACTOR = 10;
 app.use(logger());
 
 var shortId = require('shortid');
@@ -25,7 +26,7 @@ var User     = require('./app/models/user');
 var License  = require('./app/models/license');
 var App      = require('./app/models/app');
 var Activity = require('./app/models/activity');
-
+var Customer = require('./app/models/customer')
 
 // configure app to use bodyParser()
 // this will let us get the data from a POST
@@ -53,6 +54,25 @@ function validateEmail(email) {
     var re = /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
     return re.test(email);
 } 
+//crypto
+var crypto = require('crypto');
+var AESCrypt = {};
+AESCrypt.decrypt = function (cryptkey, iv, encryptdata) {
+    var decipher = crypto.createDecipheriv('aes-128-cbc', cryptkey, iv);
+    return Buffer.concat([
+        decipher.update(encryptdata),
+        decipher.final()
+    ]);
+}
+
+AESCrypt.encrypt = function (cryptkey, iv, cleardata) {
+    var encipher = crypto.createCipheriv('aes-128-cbc', cryptkey, iv);
+    return Buffer.concat([
+        encipher.update(cleardata),
+        encipher.final()
+    ]);
+}
+
 
 
 // ROUTES FOR OUR API
@@ -157,7 +177,7 @@ function isOwner(req, res, next) {
 	if (req.isAuthenticated() && req.user.apps[0].id == req.params.appid )
 		return next();
 	else
-		res.redirect('/login');
+		res.redirect('/glogin');
 }
 
 // route middleware to make sure a user is logged in
@@ -165,26 +185,25 @@ function isLoggedIn(req, res, next) {
 	if (req.isAuthenticated())
 		return next();
 	else
-		res.redirect('/login');
+		res.redirect('/glogin');
 }
 
 passport.use(new BasicStrategy(function (username, password, done) {
-    Customers.findOne({ email : username },function(err,user){
+    Customer.findOne({ email : username },function(err,user){
         if(err) { return done(err); }
         if(!user){
             return done(null, false, { message: 'Incorrect username.' });
         }
-        hash(password, user.salt, function (err, hash) {
-            if (err) { return done(err); }
-            if (hash == user.password) return done(null, user);
-            done(null, false, { message: 'Incorrect password.' });
-        });
+		bcrypt.compare(password, user.password, function(err, isMatch) {
+			if (err) return done(err);
+			done(null, user);
+		});
     });
 }));
 
 passport.use(new BearerStrategy(
   function (token, done) {
-    Customers.findOne({ access_token: token }, function (err, user) {
+    Customer.findOne({ oauthtoken: token }, function (err, user) {
       if (err) { return done(err); }
       if (!user) { return done(null, false); }
       return done(null, user, { scope: 'all' });
@@ -228,30 +247,30 @@ router.route('/apps/:appid/licenses')
 			else {
 				//todo : check dates
 				
-				var user = new User(); 		// create a new instance of the User model
-				user.email = req.body.email;  // set the user email (comes from the request)
-				user.password = shortId.generate();
-				user.id = shortId.generate();
-				user.oauthtoken = shortId.generate()+shortId.generate();
-				user.oauthtokenexpires = moment().add('days', 30);
-				user.forgottoken = shortId.generate()+shortId.generate();
-				user.forgottokenexpires = moment().add('days', 30);
-				user.datecreated = moment();
-				user.active = false; //need user to accept invitation
+				var customer = new Customer(); 		// create a new instance of the User model
+				customer.email = req.body.email;  // set the user email (comes from the request)
+				customer.password = shortId.generate();
+				customer.id = shortId.generate();
+				customer.oauthtoken = shortId.generate()+shortId.generate();
+				customer.oauthtokenexpires = moment().add('days', 30);
+				customer.forgottoken = shortId.generate()+shortId.generate();
+				customer.forgottokenexpires = moment().add('days', 30);
+				customer.datecreated = moment();
+				customer.active = true; //false; need user to accept invitation
 
 				// save the user and check for errors
-				user.save(function(err) {
-					if (err && err.code !== 11000) {//Maybe user already exists, if so continue
+				customer.save(function(err) {
+					if (err && err.code !== 11000) {//Maybe customer already exists, if so continue
 						res.send(err); 
 					} else {
 						if (err && err.code == 11000) {
-							User.find({email : req.body.email}, function(err, user) {
+							Customer.find({email : req.body.email}, function(err, user) {
 								if (err)
 									res.send(err);
 								else if (!user.length)
 									res.send(500);
 								else {
-									License.find({userid : user[0].id, appid : req.params.appid, active : true}, function(err, license) {
+									License.find({userid : customer[0].id, appid : req.params.appid, active : true}, function(err, license) {
 										if (err)
 											res.send(500);
 											
@@ -260,7 +279,7 @@ router.route('/apps/:appid/licenses')
 										else {
 											var license = new License();
 											license.id = shortId.generate();
-											license.userid = user[0].id;
+											license.userid = customer[0].id;
 											license.appid = req.params.appid;
 											license.from = moment(req.body.from);
 											license.to = moment(req.body.to);
@@ -274,7 +293,7 @@ router.route('/apps/:appid/licenses')
 												if (err)
 													res.send(err); // wrong cast
 												else
-													res.json({ message: 'License created, user invited' });
+													res.json({ message: 'License created, customer invited' });
 											});	
 										}
 									});
@@ -282,16 +301,16 @@ router.route('/apps/:appid/licenses')
 							});
 						}
 						else {
-							License.find({userid : user.id, appid : req.params.appid, active : true}, function(err, license) {
+							License.find({userid : customer.id, appid : req.params.appid, active : true}, function(err, license) {
 								if (err)
 									res.send(500);
 									
 								if (license.length)
-									res.send(403, { error : 'user already have a license for this app'});
+									res.send(403, { error : 'customer already have a license for this app'});
 								else {
 									var license = new License();
 									license.id = shortId.generate();
-									license.userid = user.id;
+									license.userid = customer.id;
 									license.appid = req.params.appid;
 									license.from = moment(req.body.from);
 									license.to = moment(req.body.to);
@@ -305,7 +324,7 @@ router.route('/apps/:appid/licenses')
 										if (err)
 											res.send(err); // wrong cast
 										else
-											res.json({ message: 'License created, user invited' });
+											res.json({ message: 'License created, customer invited' });
 									});	
 								}
 							});
@@ -319,7 +338,7 @@ router.route('/apps/:appid/licenses')
 	})
 	
 	// get all the licenses (accessed at GET http://localhost:8080/api/users)
-	.get(function(req, res) {
+	.get(isOwner, function(req, res) {
 		License.find({appid : req.params.appid, active : true}, function(err, license) {
 			if (err)
 				res.send(err);
@@ -336,19 +355,16 @@ router.route('/oauthtoken')
 		res.header('Content-Type','application/json;charset=UTF-8');
 		res.header('Cache-Control','no-store');
 		res.header('Pragma', 'no-cache');
-
-//		crypto.randomBytes(25, function(ex, buf) {
-//		var token = buf.toString('hex');
-			var token = shortId.generate()+shortId.generate();
-			Customer.update({email: req.user.email},{access_token:token}, function(err,affected, raw) {
-				console.log('%d new oauth token for user %s', affected, req.user.email);
-			});
-			var jsonData = {};
-			jsonData['access_token'] = token;
-			jsonData['token_type'] = 'access_token';
-			jsonData['expires_in'] = '3600'; //TODO
-			res.send(jsonData);
-//		});
+		
+		var token = shortId.generate()+shortId.generate();
+		Customer.update({email: req.user.email},{oauthtoken:token}, function(err,affected, raw) {
+			console.log('%d new oauth token for customer %s', affected, req.user.email);
+		});
+		var jsonData = {};
+		jsonData['access_token'] = token;
+		jsonData['token_type'] = 'access_token';
+		jsonData['expires_in'] = '3600'; //TODO
+		res.send(jsonData);
 	});
 	
 router.route('/apps/:appid/license')
@@ -356,18 +372,59 @@ router.route('/apps/:appid/license')
 	// get a fresh license, for customers only. 
 	// Owner has no point using that service
 	.get(passport.authenticate('bearer', { session: false }), function(req, res) {
-		//Here check req.headers.X-Grow-License
-		
-		return License.find({userid : req.user._id, appid : req.params.appid}, function(err, license) {
-			if (err)
-				res.send(err);
-			else if (!license.length)
-				res.send(404);
-			else if (!license.active) 
-				res.send(403, 'License has been deactivated');
-			else
-				res.json(license);
-		});
+		if (typeof req.headers['x-license'] !== 'undefined' && req.headers['x-license'] !== null) {
+			App.findOne({id : req.params.appid}, function(err, app) {
+				if (err)
+					res.send(err);
+					
+				var cryptkey = new Buffer('IdzPaIeJX1U1TO2v');//app.client_secret);
+				var iv = new Buffer('2iiub88whiYSBdj0');//app.client_secret);
+				
+				License.findOne({userid : req.user.id, appid : req.params.appid}, function(err, license) {
+					if (err)
+						res.send(err);
+					else if (license == null)
+						res.send(404);
+					else if (license.active===false) 
+						res.send(403, 'License is deactivated');
+					else {
+						var json = {};
+						var data = new Buffer(req.get('X-License'), 'base64');
+						var dec = AESCrypt.decrypt(cryptkey, iv, data);
+						json = JSON.parse(dec.toString('utf8').substr(0, dec.toString('utf8').lastIndexOf("}") + 1));
+
+						if (license.appid == json.ApplicationID) {
+							res.send(400, 'License sent is not valid');
+						}
+
+						//json.ApplicationID = license.applicationid;
+						//json.VolumeInfo = license.VolumeInfo;
+						if (moment(license.from) > moment())
+							json.StartDate = moment(license.from).format("YYYY-MMM-DD HH:mm:ss");
+						else
+							json.StartDate = moment().format("YYYY-MMM-DD HH:mm:ss");
+							
+						if (moment().add('hours', license.maxofflinetime) > moment(license.to))
+							json.EndDate = moment(license.to).format("YYYY-MMM-DD HH:mm:ss");
+						else
+							json.EndDate = moment().add('hours', license.maxofflinetime).format("YYYY-MMM-DD HH:mm:ss");
+							
+						console.log(json);
+
+						var data2 = new Buffer(JSON.stringify(json), 'utf8');
+						var enc = AESCrypt.encrypt(cryptkey, iv, data2);
+
+						console.log('Issuing new license for user ' + req.user.email + ', VolumeInfo ' + json.VolumeInfo + ' and for ApplicationID ' + json.ApplicationID);
+
+						var jsonData = {};
+						jsonData['License'] = enc.toString('base64');
+						res.send(jsonData);
+					}
+				});
+			});
+		}
+		else
+			res.send(400, 'Need old license or MachineID');
 	})
 	
 	// update the license with this id (accessed at PUT http://localhost:8080/api/xxxs/:xxx_id)

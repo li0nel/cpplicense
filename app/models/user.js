@@ -13,10 +13,12 @@ var UserSchema   = new Schema({
 	email : String,
 	picture : String,
 	//email: { type: String, required: true, index: { unique: true } },
-	//password: { type: String, required: true },
-	//id: { type: String, required: true, index: { unique: true } },
+	//password: { type: String },
+	id: { type: String, required: true, index: { unique: true } },
 	//oauthtoken: String,
 	//oauthtokenexpires: Date,
+	//forgottoken: String,
+	//forgottokenexpires: Date,
 	datecreated: Date,
 	active: Boolean
 });

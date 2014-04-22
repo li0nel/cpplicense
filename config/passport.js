@@ -82,7 +82,7 @@ module.exports = function(passport) {
 						app.ownerid = newUser.id;
 						app.datecreated = moment();
 						app.description = 'My app';
-						app.client_secret = shortId.generate()+shortId.generate();
+						app.client_secret = (shortId.generate()+shortId.generate()).substr(1,16);
 						app.active = true;
 
 						// save the app and check for errors
