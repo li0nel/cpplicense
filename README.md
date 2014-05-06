@@ -1,4 +1,3 @@
-# Grow API
 GrowAPI is a REST API used by GrowSDK to manage users and users' assets on the Grow platform.
 
 # Security
